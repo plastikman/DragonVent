@@ -7,6 +7,21 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-08-26
+
+### Changed
+- Pin **dragon-core v0.30.0** (from v0.25.0) — headline is **Wi-Fi join
+  reliability**: disables WiFi modem power-save (fixes "associated but never gets
+  a DHCP IP"), a no-DHCP-IP watchdog that skips a mesh node that admits but won't
+  lease, more connect retries, and an opt-in **fallback** AP mode. Also carries
+  the intervening core work (Prusa/PrusaLink source, Bambu chamber-follow +
+  freshness, serial-redaction, shared UI updates). Build-verified; the Wi-Fi
+  fixes were hardware-proven on a C3 (DragonWheeze) in a multi-AP mesh.
+
+### Fixed
+- Handle the new `DC_SRC_PRUSA` control-source enum in the source switch (Vent
+  has no Prusa support, so it logs and no-ops like the other unsupported sources).
+
 ## [0.5.8] - 2026-08-19
 
 ### Added

@@ -48,6 +48,9 @@ static esp_err_t start_control_source(void)
     case DC_SRC_KLIPPER_MQTT:
         ESP_LOGW(TAG, "Klipper MQTT source is not available in DragonVent yet");
         return ESP_OK;
+    case DC_SRC_PRUSA:
+        ESP_LOGW(TAG, "Prusa source is not available in DragonVent yet");
+        return ESP_OK;
     case DC_SRC_NONE:
         return ESP_OK;
     case DC_SRC_MAX:
