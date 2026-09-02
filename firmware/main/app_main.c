@@ -82,9 +82,20 @@ static void update_rgb_from_state(void)
     case DC_SRC_BAMBU: {
         dc_bambu_status_t st = {0};
         dc_bambu_get_status(&st);
-        status = st.error ? DV_PS_ERROR
-               : st.printing ? DV_PS_PRINTING
-               : st.connected ? DV_PS_IDLE : DV_PS_NONE;   // Bambu exposes a coarse status
+        switch (st.print_state) {
+        case DC_BAMBU_PRINT_IDLE:        status = DV_PS_IDLE; break;
+        case DC_BAMBU_PRINT_DOWNLOADING:
+        case DC_BAMBU_PRINT_PREPARING:   status = DV_PS_PREPARING; break;
+        case DC_BAMBU_PRINT_PRINTING:    status = DV_PS_PRINTING; break;
+        case DC_BAMBU_PRINT_PAUSED:      status = DV_PS_PAUSED; break;
+        case DC_BAMBU_PRINT_COMPLETE:    status = DV_PS_COMPLETE; break;
+        case DC_BAMBU_PRINT_ERROR:       status = DV_PS_ERROR; break;
+        default:
+            status = st.error ? DV_PS_ERROR
+                   : st.printing ? DV_PS_PRINTING
+                   : st.connected ? DV_PS_IDLE : DV_PS_NONE;
+            break;
+        }
         bed = st.bed_temp;
         break;
     }
