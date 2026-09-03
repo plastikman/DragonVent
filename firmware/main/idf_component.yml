@@ -1,33 +1,39 @@
 dependencies:
+  # Pinned to the feat/vent-breath-link branch during development (adds dc_breath_link
+  # + the dc_ui status card). Re-pin all to the next dragon-core release tag on merge.
   dc_evlog:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_evlog
-    version: v0.32.0
+    version: feat/vent-breath-link
   dc_source:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_source
-    version: v0.32.0
+    version: feat/vent-breath-link
   dc_bambu:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_bambu
-    version: v0.32.0
+    version: feat/vent-breath-link
   dc_wifi:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_wifi
-    version: v0.32.0
+    version: feat/vent-breath-link
   dc_moonraker:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_moonraker
-    version: v0.32.0
+    version: feat/vent-breath-link
+  dc_breath_link:
+    git: https://github.com/justinh-rahb/dragon-core.git
+    path: components/dc_breath_link
+    version: feat/vent-breath-link
   dc_ui:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_ui
-    version: v0.32.0
+    version: feat/vent-breath-link
   dc_portal:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_portal
-    version: v0.32.0
+    version: feat/vent-breath-link
   dc_lighting:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_lighting
-    version: v0.32.0
+    version: feat/vent-breath-link

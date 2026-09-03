@@ -8,8 +8,10 @@
 
 #include "cJSON.h"
 #include "dc_bambu.h"
+#include "dc_breath_link.h"
 #include "dc_evlog.h"
 #include "dc_moonraker.h"
+#include "esp_timer.h"
 #include "dc_portal.h"
 #include "dc_source.h"
 #include "dc_wifi.h"
@@ -226,6 +228,23 @@ static cJSON *make_state(void)
     cJSON *policy = cJSON_AddObjectToObject(root, "policy");
     cJSON_AddNumberToObject(policy, "bed_open_c", open_c);
     cJSON_AddNumberToObject(policy, "bed_close_c", close_c);
+
+    // DragonBreath advisory info source (for the status card; shown only when configured).
+    dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
+    cJSON *db = cJSON_AddObjectToObject(root, "dragonbreath");
+    bool db_conf = bl.enabled && bl.address[0];
+    cJSON_AddBoolToObject(db, "configured", db_conf);
+    if (db_conf) {
+        dc_breath_snapshot_t snap;
+        bool fresh = dc_breath_link_get(&snap) && snap.valid &&
+                     (esp_timer_get_time() - snap.updated_us) < DC_BREATH_FRESH_US;
+        cJSON_AddBoolToObject(db, "online", fresh);
+        cJSON_AddBoolToObject(db, "heater_running", dc_breath_link_heater_running());
+        cJSON_AddStringToObject(db, "mode", fresh ? snap.mode : "");
+        if (fresh && !isnan(snap.chamber_c)) cJSON_AddNumberToObject(db, "chamber_c", snap.chamber_c);
+        else cJSON_AddNullToObject(db, "chamber_c");
+        cJSON_AddNumberToObject(db, "target_c", fresh ? snap.target_c : 0.0);
+    }
 
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
     cJSON_AddStringToObject(wifi, "state", wifi_wire(dc_wifi_state()));
@@ -620,6 +639,20 @@ static cJSON *describe_product(void *ctx)
     snprintf(number, sizeof(number), "%.0f", close_c);
     f = field(fields, "bed_close_c", "Close below °C", "number", number); cJSON_AddNumberToObject(f,"min",0); cJSON_AddNumberToObject(f,"max",119);
     cJSON_AddItemToArray(sections, policy);
+
+    // DragonBreath advisory info source: when configured, AUTO seals the vent while the
+    // Breath's chamber heater is running (heat soak / hold / drying). Advisory only.
+    dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
+    cJSON *breath = cJSON_CreateObject();
+    cJSON_AddStringToObject(breath, "title", "DragonBreath info source");
+    cJSON_AddStringToObject(breath, "description",
+        "Optional. When set, AUTO also seals the vent while a paired DragonBreath is "
+        "heating the chamber (soak, hold, or filament drying). Advisory only — it never "
+        "overrides the printer-driven decision.");
+    fields = cJSON_AddArrayToObject(breath, "fields");
+    field(fields, "breath_enabled", "Enable DragonBreath info source", "boolean", bl.enabled ? "1" : "0");
+    field(fields, "breath_host", "Address", "text", bl.address);
+    cJSON_AddItemToArray(sections, breath);
     return root;
 }
 
@@ -699,6 +732,17 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         dv_policy_set_thresholds((float)open_c, (float)close_c) != ESP_OK) {
         snprintf(message, message_size, "Open temperature must be above close temperature"); return ESP_ERR_INVALID_ARG;
     }
+
+    // DragonBreath advisory info source (address + enable).
+    const char *bh = string_value(values, "breath_host");
+    const char *be = string_value(values, "breath_enabled");
+    if (bh || be) {
+        dc_breath_link_config_t c = {0}; dc_breath_link_get_config(&c);
+        if (bh) snprintf(c.address, sizeof(c.address), "%s", bh);
+        if (be) c.enabled = (strcmp(be, "1") == 0);
+        esp_err_t err = dc_breath_link_set_config(&c);
+        if (err != ESP_OK) { snprintf(message, message_size, "Could not save DragonBreath settings"); return err; }
+    }
     snprintf(message, message_size, "Settings saved. Restart to apply a source change.");
     return ESP_OK;
 }
@@ -708,6 +752,7 @@ static esp_err_t factory_reset(void *ctx)
     (void)ctx;
     esp_err_t first = dc_moonraker_clear_config();
     if (first == ESP_OK) first = dc_bambu_clear_config();
+    if (first == ESP_OK) first = dc_breath_link_clear_config();
     if (first == ESP_OK) first = dc_source_set(DC_SRC_KLIPPER);
     if (first == ESP_OK) first = dv_policy_clear();
     return first;

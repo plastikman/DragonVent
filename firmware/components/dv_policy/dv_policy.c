@@ -1,5 +1,6 @@
 #include "dv_policy.h"
 #include "dc_bambu.h"
+#include "dc_breath_link.h"
 #include "dc_evlog.h"
 #include "dc_moonraker.h"
 #include "dc_source.h"
@@ -99,39 +100,42 @@ static void read_auto_input(auto_input_t *out)
 
     if (s_source == DC_SRC_KLIPPER) {
         dc_moonraker_status_t st = {0};
-        if (dc_moonraker_get_status(&st) != ESP_OK) return;
-        out->reliable = st.state == DC_MK_SUBSCRIBED &&
-                        st.printer != DC_PRINTER_UNKNOWN;
-        out->error = st.printer == DC_PRINTER_ERROR;
-        out->active = st.printer == DC_PRINTER_PRINTING ||
-                      st.printer == DC_PRINTER_PREPARING ||
-                      st.printer == DC_PRINTER_PAUSED;
-        out->bed_temp = st.bed_temp;
-        snprintf(out->material, sizeof(out->material), "%s", st.material);
-        out->state = dc_printer_state_str(st.printer);
-        // Paired DragonBreath (via the dragonbreath-klipper helper): seal while it
-        // is deliberately heating. Use the helper's confirmed device state, not an
-        // inference from chamber temperature. mode power_on/auto = heating intent;
-        // off/drying/filter do not seal.
-        bool db_heat_mode = strcmp(st.db_mode, "power_on") == 0 ||
-                            strcmp(st.db_mode, "auto") == 0;
-        out->chamber_heating = st.db_present && st.db_connected && !st.db_fault &&
-                               !st.db_inhibited && st.db_target > 0.0f && db_heat_mode;
-        return;
-    }
-
-    if (s_source == DC_SRC_BAMBU) {
+        if (dc_moonraker_get_status(&st) == ESP_OK) {
+            out->reliable = st.state == DC_MK_SUBSCRIBED &&
+                            st.printer != DC_PRINTER_UNKNOWN;
+            out->error = st.printer == DC_PRINTER_ERROR;
+            out->active = st.printer == DC_PRINTER_PRINTING ||
+                          st.printer == DC_PRINTER_PREPARING ||
+                          st.printer == DC_PRINTER_PAUSED;
+            out->bed_temp = st.bed_temp;
+            snprintf(out->material, sizeof(out->material), "%s", st.material);
+            out->state = dc_printer_state_str(st.printer);
+            // Fallback DragonBreath signal via the dragonbreath-klipper helper's
+            // republished device state (used only when no direct link is configured).
+            bool db_heat_mode = strcmp(st.db_mode, "power_on") == 0 ||
+                                strcmp(st.db_mode, "auto") == 0;
+            out->chamber_heating = st.db_present && st.db_connected && !st.db_fault &&
+                                   !st.db_inhibited && st.db_target > 0.0f && db_heat_mode;
+        }
+    } else if (s_source == DC_SRC_BAMBU) {
         dc_bambu_status_t st = {0};
-        if (dc_bambu_get_status(&st) != ESP_OK) return;
-        out->reliable = st.state == DC_BAMBU_SUBSCRIBED;
-        out->active = st.printing;
-        out->bed_temp = st.bed_temp;
-        snprintf(out->material, sizeof(out->material), "%s", st.filament);
-        out->state = st.printing ? "printing" : "idle";
-        return;
+        if (dc_bambu_get_status(&st) == ESP_OK) {
+            out->reliable = st.state == DC_BAMBU_SUBSCRIBED;
+            out->active = st.printing;
+            out->bed_temp = st.bed_temp;
+            snprintf(out->material, sizeof(out->material), "%s", st.filament);
+            out->state = st.printing ? "printing" : "idle";
+        }
+    } else {
+        out->state = dc_source_str(s_source);
     }
 
-    out->state = dc_source_str(s_source);
+    // Direct DragonBreath link (source-agnostic advisory info source). When a Breath
+    // is configured on this Vent it is authoritative for the heat-retention signal,
+    // overriding the Klipper-helper fallback above; a stale/offline/unconfigured
+    // Breath yields false (fail-safe -> printer-only). Includes drying mode.
+    if (dc_breath_link_configured())
+        out->chamber_heating = dc_breath_link_heater_running();
 }
 
 static void apply_target(dv_motor_target_t t)
@@ -141,50 +145,47 @@ static void apply_target(dv_motor_target_t t)
     s_current_target = t;
 }
 
-// AUTO decision. Returns the target we should be driving toward, given the
-// current Moonraker snapshot. If we don't have reliable data, keep whatever
-// we're already commanding.
+// AUTO decision. Returns the target we should be driving toward, given the current
+// printer snapshot and (when configured) the direct DragonBreath heater signal. If we
+// don't have reliable data, keep whatever we're already commanding.
 //
 // Order of consideration:
-//   1. No subscription yet / unknown state -> hold
-//   2. ERROR                               -> hold (don't move on a broken printer)
-//   3. Chamber heater deliberately heating -> CLOSED (seal to build/hold chamber heat)
-//   4. Printing/preparing/paused + material rule wants sealed -> CLOSED
-//   5. Printing/preparing/paused           -> OPEN
-//   6. Idle/complete, bed still hot        -> OPEN  (residual heat)
-//   7. Idle/complete, bed cool             -> CLOSED
-//   8. Otherwise                           -> hold  (hysteresis band)
+//   1. No subscription yet / unknown state / ERROR -> hold
+//   2. DragonBreath heater running (soak / hold / dry) -> CLOSED
+//   3. Printing/preparing/paused + material wants sealed (ASA/ABS/PC/PA) -> CLOSED
+//   4. Not printing + heater off -> OPEN  (print is over + no heat job = cooldown)
+//   5. Printing + non-sealing material (PLA) -> OPEN
+//
+// Bed temperature is deliberately NOT used. A just-finished print leaves the bed hot
+// for many minutes, so bed temp cannot distinguish "print over" from "still printing";
+// the printer's own print-state edge (`active`) is the reliable signal instead.
 static dv_motor_target_t decide_auto_target(const auto_input_t *st)
 {
     if (!st->reliable || st->error) return s_current_target;
 
-    // A paired DragonBreath actively heating the chamber is an explicit
-    // heat-retention intent: seal, regardless of print state or material. This is
-    // what covers a pre-print heat soak, where the idle "hot bed -> OPEN"
-    // residual-heat rule would otherwise open the vent.
+    // A DragonBreath actively running a heating job (power_on/auto/drying with a
+    // target) is an explicit heat-retention intent: seal, regardless of print state
+    // or material. This covers the pre-print heat soak and a mid-print chamber hold.
     if (st->chamber_heating) return DV_MOTOR_TARGET_CLOSED;
 
     if (st->active) {
         material_pref_t mat = material_preference(st->material);
         if (mat == MAT_PREFER_SEALED) return DV_MOTOR_TARGET_CLOSED;
-        // MAT_PREFER_OPEN and MAT_PREFER_UNKNOWN both open during a print —
-        // the tester's ask is that PLA-style vents while ABS seals; when we
-        // don't know the material we default to venting, which is the safer
-        // choice for PLA-family plastics that dominate hobby printing.
+        // MAT_PREFER_OPEN / UNKNOWN vent during a print (PLA-family default).
         return DV_MOTOR_TARGET_OPEN;
     }
 
-    // Idle / complete: use bed-temp hysteresis so residual chamber heat
-    // keeps the vent open until things cool down.
-    if (st->bed_temp > s_bed_open_c)  return DV_MOTOR_TARGET_OPEN;
-    if (st->bed_temp < s_bed_close_c) return DV_MOTOR_TARGET_CLOSED;
-    return s_current_target;
+    // Not printing and no heat-retention job -> the print is over and the heater is
+    // off, so open to vent the cooldown.
+    return DV_MOTOR_TARGET_OPEN;
 }
 
 static void policy_task(void *arg)
 {
     (void)arg;
     for (;;) {
+        // Light-touch gating: the Breath is polled only while AUTO actually needs it.
+        dc_breath_link_set_active(s_mode == DV_POLICY_MODE_AUTO);
         auto_input_t st;
         read_auto_input(&st);
 
