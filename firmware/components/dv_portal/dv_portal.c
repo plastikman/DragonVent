@@ -223,12 +223,6 @@ static cJSON *make_state(void)
     else cJSON_AddNumberToObject(printer, "bed_temperature_c", bed);
     cJSON_AddStringToObject(printer, "material", material);
 
-    float open_c = 45, close_c = 35;
-    dv_policy_get_thresholds(&open_c, &close_c);
-    cJSON *policy = cJSON_AddObjectToObject(root, "policy");
-    cJSON_AddNumberToObject(policy, "bed_open_c", open_c);
-    cJSON_AddNumberToObject(policy, "bed_close_c", close_c);
-
     // DragonBreath advisory info source (for the status card; shown only when configured).
     dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
     cJSON *db = cJSON_AddObjectToObject(root, "dragonbreath");
@@ -319,34 +313,6 @@ static esp_err_t command_post(httpd_req_t *req)
     if (err != ESP_OK) return api_error(req, "409 Conflict", esp_err_to_name(err));
     ++s_api_revision;
     dc_evlog_add("api: mode=%s target=%s", dv_policy_get_mode() == DV_POLICY_MODE_AUTO ? "auto" : "manual", target_wire(dv_policy_get_target()));
-    cJSON *reply = cJSON_CreateObject();
-    cJSON_AddItemToObject(reply, "state", make_state());
-    return send_json(req, reply);
-}
-
-static esp_err_t settings_get(httpd_req_t *req)
-{
-    float open_c = 45, close_c = 35;
-    dv_policy_get_thresholds(&open_c, &close_c);
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "api_version", 2);
-    cJSON_AddNumberToObject(root, "bed_open_c", open_c);
-    cJSON_AddNumberToObject(root, "bed_close_c", close_c);
-    return send_json(req, root);
-}
-
-static esp_err_t settings_post(httpd_req_t *req)
-{
-    if (auth_reject(req)) return ESP_OK;
-    cJSON *body = recv_json(req);
-    cJSON *open = body ? cJSON_GetObjectItemCaseSensitive(body, "bed_open_c") : NULL;
-    cJSON *close = body ? cJSON_GetObjectItemCaseSensitive(body, "bed_close_c") : NULL;
-    if (!cJSON_IsNumber(open) || !cJSON_IsNumber(close)) { cJSON_Delete(body); return api_error(req, "400 Bad Request", "bed_open_c and bed_close_c are required"); }
-    float open_c = (float)open->valuedouble, close_c = (float)close->valuedouble;
-    cJSON_Delete(body);
-    if (!isfinite(open_c) || !isfinite(close_c) || close_c < 0 || open_c > 120 || dv_policy_set_thresholds(open_c, close_c) != ESP_OK)
-        return api_error(req, "400 Bad Request", "open temperature must be above close temperature and both must be 0..120 C");
-    ++s_api_revision;
     cJSON *reply = cJSON_CreateObject();
     cJSON_AddItemToObject(reply, "state", make_state());
     return send_json(req, reply);
@@ -631,15 +597,6 @@ static cJSON *describe_product(void *ctx)
     cJSON_AddBoolToObject(field(fields, "control_token", "Control token", "text", ""), "secret", true);
     cJSON_AddItemToArray(sections, security);
 
-    float open_c = 45, close_c = 35; dv_policy_get_thresholds(&open_c, &close_c);
-    cJSON *policy = cJSON_CreateObject(); cJSON_AddStringToObject(policy, "title", "Automatic vent policy");
-    fields = cJSON_AddArrayToObject(policy, "fields");
-    char number[16]; snprintf(number, sizeof(number), "%.0f", open_c);
-    cJSON *f = field(fields, "bed_open_c", "Open at °C", "number", number); cJSON_AddNumberToObject(f,"min",1); cJSON_AddNumberToObject(f,"max",120);
-    snprintf(number, sizeof(number), "%.0f", close_c);
-    f = field(fields, "bed_close_c", "Close below °C", "number", number); cJSON_AddNumberToObject(f,"min",0); cJSON_AddNumberToObject(f,"max",119);
-    cJSON_AddItemToArray(sections, policy);
-
     // DragonBreath advisory info source: when configured, AUTO seals the vent while the
     // Breath's chamber heater is running (heat soak / hold / drying). Advisory only.
     dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
@@ -730,12 +687,6 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         dc_evlog_add("control token %s", strcmp(token, "-") == 0 ? "cleared" : "set");
     }
 
-    double open_c = 0, close_c = 0;
-    if (number_value(values, "bed_open_c", &open_c) && number_value(values, "bed_close_c", &close_c) &&
-        dv_policy_set_thresholds((float)open_c, (float)close_c) != ESP_OK) {
-        snprintf(message, message_size, "Open temperature must be above close temperature"); return ESP_ERR_INVALID_ARG;
-    }
-
     // DragonBreath advisory info source (address + enable).
     const char *bh = string_value(values, "breath_host");
     const char *be = string_value(values, "breath_enabled");
@@ -769,8 +720,6 @@ esp_err_t dv_portal_start(void)
         { .uri = "/api/v2/info", .method = HTTP_GET, .handler = info_get },
         { .uri = "/api/v2/state", .method = HTTP_GET, .handler = state_get },
         { .uri = "/api/v2/command", .method = HTTP_POST, .handler = command_post },
-        { .uri = "/api/v2/settings", .method = HTTP_GET, .handler = settings_get },
-        { .uri = "/api/v2/settings", .method = HTTP_POST, .handler = settings_post },
         { .uri = "/api/v2/lighting", .method = HTTP_GET, .handler = lighting_get },
         { .uri = "/api/v2/lighting", .method = HTTP_POST, .handler = lighting_post },
         { .uri = "/api/v2/filament", .method = HTTP_GET, .handler = filament_get },

@@ -20,18 +20,9 @@ static const char *TAG = "dv_policy";
 
 #define NVS_NS         "app_nvs"
 #define KEY_MODE       "policy_mode"
-#define KEY_BED_OPEN   "bed_open_c"
-#define KEY_BED_CLOSE  "bed_close_c"
 #define KEY_MAN_TGT    "man_tgt"
 #define KEY_FILAMENT   "fil_rules"
 
-// Defaults for the bed-temperature hysteresis if the user hasn't changed
-// them: open the vent when bed climbs above BED_OPEN_C_DEFAULT, close it
-// when it drops below BED_CLOSE_C_DEFAULT, hold current state between.
-// Chosen so residual heat after a print keeps the vent open until the
-// chamber cools.
-#define BED_OPEN_C_DEFAULT   45.0f
-#define BED_CLOSE_C_DEFAULT  35.0f
 #define TICK_MS      1000
 
 // Material-aware behavior. When the printer publishes a known material name,
@@ -79,8 +70,6 @@ static TaskHandle_t      s_task = NULL;
 static dv_policy_mode_t  s_mode = DV_POLICY_MODE_AUTO;
 static dv_motor_target_t s_manual_target  = DV_MOTOR_TARGET_CLOSED;
 static dv_motor_target_t s_current_target = DV_MOTOR_TARGET_CLOSED;
-static float             s_bed_open_c  = BED_OPEN_C_DEFAULT;
-static float             s_bed_close_c = BED_CLOSE_C_DEFAULT;
 static dc_ctl_source_t   s_source = DC_SRC_KLIPPER;
 
 typedef struct {
@@ -218,15 +207,6 @@ static void policy_task(void *arg)
 
 // ---------- NVS ----------
 
-// NVS stores °C values as centi-degrees in a u32 so we don't have to teach
-// nvs about floats. 45.0 °C -> 4500. Range is clamped in setter.
-static float centi_to_c(uint32_t v) { return (float)v / 100.0f; }
-static uint32_t c_to_centi(float c)
-{
-    if (c < 0.0f)   c = 0.0f;
-    if (c > 200.0f) c = 200.0f;
-    return (uint32_t)(c * 100.0f + 0.5f);
-}
 
 static void load_persisted(void)
 {
@@ -250,10 +230,6 @@ static void load_persisted(void)
         s_manual_target = (t == DV_MOTOR_TARGET_OPEN) ? DV_MOTOR_TARGET_OPEN
                                                      : DV_MOTOR_TARGET_CLOSED;
     }
-    uint32_t v = 0;
-    if (nvs_get_u32(h, KEY_BED_OPEN,  &v) == ESP_OK) s_bed_open_c  = centi_to_c(v);
-    if (nvs_get_u32(h, KEY_BED_CLOSE, &v) == ESP_OK) s_bed_close_c = centi_to_c(v);
-
     // Filament rules: override the defaults from the NVS blob if present + valid
     // (a whole number of rules). On any error nvs_get_blob leaves s_rules alone.
     size_t rsz = sizeof(s_rules);
@@ -282,15 +258,6 @@ static void save_manual_target(dv_motor_target_t t)
     nvs_close(h);
 }
 
-static void save_thresholds(float open_c, float close_c)
-{
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_u32(h, KEY_BED_OPEN,  c_to_centi(open_c));
-    nvs_set_u32(h, KEY_BED_CLOSE, c_to_centi(close_c));
-    nvs_commit(h);
-    nvs_close(h);
-}
 
 int dv_policy_filament_rules(dv_filament_rule_t *out, int max)
 {
@@ -372,30 +339,6 @@ esp_err_t dv_policy_set_manual_target(dv_motor_target_t t)
 
 dv_motor_target_t dv_policy_get_target(void) { return s_current_target; }
 
-esp_err_t dv_policy_get_thresholds(float *bed_open_c, float *bed_close_c)
-{
-    if (bed_open_c == NULL || bed_close_c == NULL) return ESP_ERR_INVALID_ARG;
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    *bed_open_c  = s_bed_open_c;
-    *bed_close_c = s_bed_close_c;
-    xSemaphoreGive(s_lock);
-    return ESP_OK;
-}
-
-esp_err_t dv_policy_set_thresholds(float bed_open_c, float bed_close_c)
-{
-    // OPEN must be strictly above CLOSE, otherwise the hysteresis band
-    // collapses / inverts and the vent will flap.
-    if (!(bed_open_c > bed_close_c)) return ESP_ERR_INVALID_ARG;
-    if (s_lock == NULL) return ESP_ERR_INVALID_STATE;
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    s_bed_open_c  = bed_open_c;
-    s_bed_close_c = bed_close_c;
-    save_thresholds(bed_open_c, bed_close_c);
-    xSemaphoreGive(s_lock);
-    return ESP_OK;
-}
-
 esp_err_t dv_policy_clear(void)
 {
     nvs_handle_t h;
@@ -403,8 +346,6 @@ esp_err_t dv_policy_clear(void)
     if (err != ESP_OK) return err;
     nvs_erase_key(h, KEY_MODE);
     nvs_erase_key(h, KEY_MAN_TGT);
-    nvs_erase_key(h, KEY_BED_OPEN);
-    nvs_erase_key(h, KEY_BED_CLOSE);
     nvs_commit(h);
     nvs_close(h);
     return ESP_OK;
