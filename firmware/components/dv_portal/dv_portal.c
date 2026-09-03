@@ -675,13 +675,16 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
     (void)ctx;
     const char *source_text = string_value(values, "source");
     dc_ctl_source_t source = dc_source_get();
+    bool source_changed = false;   // only a control-source change needs a restart to apply
     if (source_text) {
+        dc_ctl_source_t before = source;
         if (!strcmp(source_text, "klipper")) source = DC_SRC_KLIPPER;
         else if (!strcmp(source_text, "bambu")) source = DC_SRC_BAMBU;
         else if (!strcmp(source_text, "none")) source = DC_SRC_NONE;
         else { snprintf(message, message_size, "Unknown control source"); return ESP_ERR_INVALID_ARG; }
         esp_err_t err = dc_source_set(source);
         if (err != ESP_OK) return err;
+        source_changed = (source != before);
     }
     const char *mk_host = string_value(values, "moonraker_host");
     if (mk_host) {
@@ -743,7 +746,9 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         esp_err_t err = dc_breath_link_set_config(&c);
         if (err != ESP_OK) { snprintf(message, message_size, "Could not save DragonBreath settings"); return err; }
     }
-    snprintf(message, message_size, "Settings saved. Restart to apply a source change.");
+    snprintf(message, message_size, source_changed
+             ? "Settings saved. Restart to apply the control-source change."
+             : "Settings saved.");
     return ESP_OK;
 }
 
