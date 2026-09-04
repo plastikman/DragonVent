@@ -226,7 +226,7 @@ static cJSON *make_state(void)
     // DragonBreath advisory info source (for the status card; shown only when configured).
     dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
     cJSON *db = cJSON_AddObjectToObject(root, "dragonbreath");
-    bool db_conf = bl.enabled && bl.address[0];
+    bool db_conf = bl.enabled;   // ESP-NOW needs no address; the address only adds the HTTP fallback
     cJSON_AddBoolToObject(db, "configured", db_conf);
     if (db_conf) {
         dc_breath_snapshot_t snap;
