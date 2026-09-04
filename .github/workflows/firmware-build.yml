@@ -6,11 +6,13 @@ on:
       - "**"
     paths:
       - "firmware/**"
+      - "tests/**"
       - ".github/workflows/firmware-build.yml"
       - ".github/workflows/firmware-release.yml"
   pull_request:
     paths:
       - "firmware/**"
+      - "tests/**"
       - ".github/workflows/firmware-build.yml"
       - ".github/workflows/firmware-release.yml"
   workflow_dispatch:
@@ -19,6 +21,15 @@ permissions:
   contents: read
 
 jobs:
+  host-tests:
+    name: Host tests (policy truth table)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Run host tests
+        run: node --test tests/*.test.mjs
+
   build:
     name: Build ESP32 firmware
     runs-on: ubuntu-latest

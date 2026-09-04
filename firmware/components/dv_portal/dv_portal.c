@@ -613,16 +613,21 @@ static cJSON *describe_product(void *ctx)
     cJSON_AddBoolToObject(field(fields, "control_token", "Control token", "text", ""), "secret", true);
     cJSON_AddItemToArray(sections, security);
 
-    // DragonBreath advisory info source: when configured, AUTO seals the vent while the
-    // Breath's chamber heater is running (heat soak / hold / drying). Advisory only.
+    // DragonBreath info source: when a paired Breath is heating the chamber, AUTO seals
+    // the vent — a running heat job takes precedence over print state (the chamber should
+    // stay sealed during a soak). When it's not heating, the vent follows the printer, or
+    // in Standalone opens for cooldown. The link is advisory/unauthenticated on purpose:
+    // it only ever moves a damper, never a heater, so a spoofed frame is harmless (see
+    // dv_policy + the RFC threat-model note).
     dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
     cJSON *breath = cJSON_CreateObject();
     cJSON_AddStringToObject(breath, "title", "DragonBreath info source");
     cJSON_AddStringToObject(breath, "description",
-        "Optional. When set, AUTO seals the vent while a paired DragonBreath is heating "
-        "the chamber (soak, hold, or filament drying). With a printer source it's advisory "
-        "— it never overrides the printer-driven decision. In Standalone (no printer) the "
-        "DragonBreath drives the vent directly: closed while heating, open when it stops.");
+        "Optional. Pick one DragonBreath. While it is heating the chamber (soak, hold, or "
+        "filament drying) AUTO seals the vent — a running heat job takes precedence, so the "
+        "chamber stays sealed regardless of print state. When the Breath is not heating, the "
+        "vent follows the printer, or in Standalone opens for cooldown (a cold chamber has "
+        "nothing to retain).");
     fields = cJSON_AddArrayToObject(breath, "fields");
     field(fields, "breath_enabled", "Enable DragonBreath info source", "boolean", bl.enabled ? "1" : "0");
     // Peer selector: bind to one DragonBreath heard on the network, or "" = any. Options
