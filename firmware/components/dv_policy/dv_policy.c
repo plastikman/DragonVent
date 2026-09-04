@@ -1,6 +1,7 @@
 #include "dv_policy.h"
 #include "dc_bambu.h"
 #include "dc_breath_link.h"
+#include "esp_timer.h"
 #include "dc_evlog.h"
 #include "dc_moonraker.h"
 #include "dc_source.h"
@@ -117,12 +118,21 @@ static void read_auto_input(auto_input_t *out)
         }
     } else {
         out->state = dc_source_str(s_source);
+        // Standalone (no printer): the DragonBreath link, if configured and live, is the
+        // driver. Marking it reliable lets the decision run — rule 2 seals while the
+        // Breath heats, rule 4 opens when it's off. A stale/absent Breath leaves it
+        // unreliable, so the vent holds (no printer + no Breath = no signal).
+        if (s_source == DC_SRC_NONE && dc_breath_link_configured()) {
+            dc_breath_snapshot_t snap;
+            bool fresh = dc_breath_link_get(&snap) && snap.valid &&
+                         (esp_timer_get_time() - snap.updated_us) < DC_BREATH_FRESH_US;
+            if (fresh) { out->reliable = true; out->state = "breath"; }
+        }
     }
 
-    // Direct DragonBreath link (source-agnostic advisory info source). When a Breath
-    // is configured on this Vent it is authoritative for the heat-retention signal,
-    // overriding the Klipper-helper fallback above; a stale/offline/unconfigured
-    // Breath yields false (fail-safe -> printer-only). Includes drying mode.
+    // DragonBreath heater signal. When a Breath is configured it drives the seal
+    // (rule 2), source-agnostic: an advisory overlay with a printer, and the primary
+    // driver in Standalone (above). Stale/absent/unconfigured => false (fail-safe).
     if (dc_breath_link_configured())
         out->chamber_heating = dc_breath_link_heater_running();
 }
@@ -173,8 +183,6 @@ static void policy_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        // Light-touch gating: the Breath is polled only while AUTO actually needs it.
-        dc_breath_link_set_active(s_mode == DV_POLICY_MODE_AUTO);
         auto_input_t st;
         read_auto_input(&st);
 

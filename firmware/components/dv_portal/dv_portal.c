@@ -226,8 +226,9 @@ static cJSON *make_state(void)
     // DragonBreath advisory info source (for the status card; shown only when configured).
     dc_breath_link_config_t bl = {0}; dc_breath_link_get_config(&bl);
     cJSON *db = cJSON_AddObjectToObject(root, "dragonbreath");
-    bool db_conf = bl.enabled;   // ESP-NOW needs no address; the address only adds the HTTP fallback
+    bool db_conf = bl.enabled;   // ESP-NOW is push-based; a bound peer just scopes which Breath
     cJSON_AddBoolToObject(db, "configured", db_conf);
+    cJSON_AddStringToObject(db, "bound_peer", bl.peer_id);   // "" = accept any DragonBreath
     if (db_conf) {
         dc_breath_snapshot_t snap;
         bool fresh = dc_breath_link_get(&snap) && snap.valid &&
@@ -243,9 +244,7 @@ static cJSON *make_state(void)
                        : snap.transport == DC_BREATH_TX_ESPNOW ? "espnow"
                        : snap.transport == DC_BREATH_TX_HTTP   ? "http" : "none";
         cJSON_AddStringToObject(db, "transport", tx);
-        cJSON_AddStringToObject(db, "peer",
-            snap.transport == DC_BREATH_TX_ESPNOW ? snap.peer_id : bl.address);
-        cJSON_AddStringToObject(db, "http_fallback", bl.address[0] ? bl.address : "");
+        cJSON_AddStringToObject(db, "peer", fresh ? snap.peer_id : bl.peer_id);
         dc_peer_stats_t ps; dc_peer_get_stats(&ps);
         cJSON *espnow = cJSON_AddObjectToObject(db, "espnow");
         cJSON_AddBoolToObject(espnow, "started", ps.started);
@@ -620,12 +619,36 @@ static cJSON *describe_product(void *ctx)
     cJSON *breath = cJSON_CreateObject();
     cJSON_AddStringToObject(breath, "title", "DragonBreath info source");
     cJSON_AddStringToObject(breath, "description",
-        "Optional. When set, AUTO also seals the vent while a paired DragonBreath is "
-        "heating the chamber (soak, hold, or filament drying). Advisory only — it never "
-        "overrides the printer-driven decision.");
+        "Optional. When set, AUTO seals the vent while a paired DragonBreath is heating "
+        "the chamber (soak, hold, or filament drying). With a printer source it's advisory "
+        "— it never overrides the printer-driven decision. In Standalone (no printer) the "
+        "DragonBreath drives the vent directly: closed while heating, open when it stops.");
     fields = cJSON_AddArrayToObject(breath, "fields");
     field(fields, "breath_enabled", "Enable DragonBreath info source", "boolean", bl.enabled ? "1" : "0");
-    field(fields, "breath_host", "Address", "text", bl.address);
+    // Peer selector: bind to one DragonBreath heard on the network, or "" = any. Options
+    // are the recently-heard peers (dc_peer roster) plus an "Any" entry; if a peer is
+    // already bound but currently silent it's added too so it stays selectable.
+    cJSON *peer_f = field(fields, "breath_peer", "DragonBreath device", "select", bl.peer_id);
+    cJSON *opts = cJSON_AddArrayToObject(peer_f, "options");
+    { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "value", "");
+      cJSON_AddStringToObject(o, "label", "Any DragonBreath"); cJSON_AddItemToArray(opts, o); }
+    dc_peer_info_t peers[8];
+    int np = dc_peer_get_peers(peers, 8);
+    bool bound_seen = (bl.peer_id[0] == '\0');
+    for (int i = 0; i < np; ++i) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "value", peers[i].id);
+        cJSON_AddStringToObject(o, "label", peers[i].id);
+        cJSON_AddItemToArray(opts, o);
+        if (strncmp(peers[i].id, bl.peer_id, DC_PEER_ID_MAX) == 0) bound_seen = true;
+    }
+    if (!bound_seen) {   // bound peer is offline right now; keep it selectable
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "value", bl.peer_id);
+        char lbl[DC_PEER_ID_MAX + 16]; snprintf(lbl, sizeof lbl, "%s (offline)", bl.peer_id);
+        cJSON_AddStringToObject(o, "label", lbl);
+        cJSON_AddItemToArray(opts, o);
+    }
     cJSON_AddItemToArray(sections, breath);
     return root;
 }
@@ -704,12 +727,13 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         dc_evlog_add("control token %s", strcmp(token, "-") == 0 ? "cleared" : "set");
     }
 
-    // DragonBreath advisory info source (address + enable).
-    const char *bh = string_value(values, "breath_host");
+    // DragonBreath info source (bound peer + enable). ESP-NOW: no address, just which
+    // Breath to bind ("" = accept any heard on the network).
+    const char *bp = string_value(values, "breath_peer");
     const char *be = string_value(values, "breath_enabled");
-    if (bh || be) {
+    if (bp || be) {
         dc_breath_link_config_t c = {0}; dc_breath_link_get_config(&c);
-        if (bh) snprintf(c.address, sizeof(c.address), "%s", bh);
+        if (bp) snprintf(c.peer_id, sizeof(c.peer_id), "%s", bp);
         if (be) c.enabled = (strcmp(be, "1") == 0);
         esp_err_t err = dc_breath_link_set_config(&c);
         if (err != ESP_OK) { snprintf(message, message_size, "Could not save DragonBreath settings"); return err; }
