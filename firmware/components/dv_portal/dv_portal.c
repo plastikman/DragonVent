@@ -630,12 +630,18 @@ static cJSON *describe_product(void *ctx)
     // already bound but currently silent it's added too so it stays selectable.
     cJSON *peer_f = field(fields, "breath_peer", "DragonBreath device", "select", bl.peer_id);
     cJSON *opts = cJSON_AddArrayToObject(peer_f, "options");
+    // Placeholder only — the link must bind to ONE specific Breath. There is no
+    // "accept any" option: an empty selection means unbound (no heater signal), so a
+    // nearby sender can't be adopted by claiming to be a DragonBreath.
     { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "value", "");
-      cJSON_AddStringToObject(o, "label", "Any DragonBreath"); cJSON_AddItemToArray(opts, o); }
+      cJSON_AddStringToObject(o, "label", "— select a DragonBreath —"); cJSON_AddItemToArray(opts, o); }
     dc_peer_info_t peers[8];
     int np = dc_peer_get_peers(peers, 8);
     bool bound_seen = (bl.peer_id[0] == '\0');
     for (int i = 0; i < np; ++i) {
+        // The roster carries every heard peer regardless of product; offer only the
+        // DragonBreath peers (each provider ids itself "dragon<kind>-<hex>").
+        if (dc_peer_kind_from_id(peers[i].id) != DC_PEER_KIND_BREATH) continue;
         cJSON *o = cJSON_CreateObject();
         cJSON_AddStringToObject(o, "value", peers[i].id);
         cJSON_AddStringToObject(o, "label", peers[i].id);
