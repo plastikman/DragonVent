@@ -6,11 +6,13 @@ on:
       - "**"
     paths:
       - "firmware/**"
+      - "tests/**"
       - ".github/workflows/firmware-build.yml"
       - ".github/workflows/firmware-release.yml"
   pull_request:
     paths:
       - "firmware/**"
+      - "tests/**"
       - ".github/workflows/firmware-build.yml"
       - ".github/workflows/firmware-release.yml"
   workflow_dispatch:
@@ -34,6 +36,9 @@ jobs:
           target: esp32
           path: .
           command: tools/idf-build.sh firmware esp32 build
+
+      - name: Run behavioral Bambu status tests
+        run: node --test tests/*.test.mjs
 
       - name: Upload firmware build outputs
         uses: actions/upload-artifact@v4

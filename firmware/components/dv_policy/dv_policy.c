@@ -1,5 +1,6 @@
 #include "dv_policy.h"
 #include "dc_bambu.h"
+#include "dv_bambu_state.h"
 #include "dc_evlog.h"
 #include "dc_moonraker.h"
 #include "dc_source.h"
@@ -127,7 +128,7 @@ static void read_auto_input(auto_input_t *out)
         out->active = st.printing;
         out->bed_temp = st.bed_temp;
         snprintf(out->material, sizeof(out->material), "%s", st.filament);
-        out->state = st.printing ? "printing" : "idle";
+        out->state = dv_bambu_live_state_str(&st);
         return;
     }
 

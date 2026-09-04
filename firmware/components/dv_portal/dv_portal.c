@@ -8,6 +8,7 @@
 
 #include "cJSON.h"
 #include "dc_bambu.h"
+#include "dv_bambu_state.h"
 #include "dc_evlog.h"
 #include "dc_moonraker.h"
 #include "dc_portal.h"
@@ -153,19 +154,6 @@ static const char *target_wire(dv_motor_target_t target)
            target == DV_MOTOR_TARGET_CLOSED ? "closed" : "stop";
 }
 
-static const char *bambu_print_wire(dc_bambu_print_state_t state)
-{
-    switch (state) {
-    case DC_BAMBU_PRINT_IDLE:        return "idle";
-    case DC_BAMBU_PRINT_DOWNLOADING: return "downloading";
-    case DC_BAMBU_PRINT_PREPARING:   return "preparing";
-    case DC_BAMBU_PRINT_PRINTING:    return "printing";
-    case DC_BAMBU_PRINT_PAUSED:      return "paused";
-    case DC_BAMBU_PRINT_COMPLETE:    return "complete";
-    case DC_BAMBU_PRINT_ERROR:       return "error";
-    default:                         return "unknown";
-    }
-}
 
 static const char *wifi_wire(dc_wifi_state_t state)
 {
@@ -225,7 +213,7 @@ static cJSON *make_state(void)
         dc_bambu_status_t status = {0};
         dc_bambu_get_status(&status);
         connected = status.connected;
-        printer_state = bambu_print_wire(status.print_state);
+        printer_state = dv_bambu_live_state_str(&status);
         bed = status.bed_temp;
         material = status.filament;
     }
