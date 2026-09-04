@@ -4,36 +4,40 @@ dependencies:
   dc_evlog:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_evlog
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_source:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_source
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_bambu:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_bambu
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_wifi:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_wifi
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_moonraker:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_moonraker
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_breath_link:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_breath_link
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_ui:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_ui
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_portal:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_portal
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
   dc_lighting:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_lighting
-    version: feat/vent-breath-link
+    version: feat/dc-peer-espnow
+  dc_peer:
+    git: https://github.com/justinh-rahb/dragon-core.git
+    path: components/dc_peer
+    version: feat/dc-peer-espnow
