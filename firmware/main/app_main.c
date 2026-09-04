@@ -4,6 +4,7 @@
 #include "dc_bambu.h"
 #include "dc_moonraker.h"
 #include "dc_breath_link.h"
+#include "dv_peer.h"
 #include "dc_peer.h"
 #include "esp_mac.h"
 #include "dc_source.h"
@@ -197,6 +198,9 @@ void app_main(void)
     esp_err_t bl_err = dc_breath_link_start();   // advisory DragonBreath info source; non-fatal
     if (bl_err != ESP_OK)
         ESP_LOGW(TAG, "dc_breath_link_start failed: %s (continuing)", esp_err_to_name(bl_err));
+    esp_err_t pv_err = dv_peer_start();          // broadcast announce + vent status; non-fatal
+    if (pv_err != ESP_OK)
+        ESP_LOGW(TAG, "dv_peer_start failed: %s (continuing)", esp_err_to_name(pv_err));
     ESP_ERROR_CHECK(dv_policy_start());
     ESP_ERROR_CHECK(dv_portal_start());
     ESP_ERROR_CHECK(dv_status_led_start());
