@@ -238,6 +238,23 @@ static cJSON *make_state(void)
         if (fresh && !isnan(snap.chamber_c)) cJSON_AddNumberToObject(db, "chamber_c", snap.chamber_c);
         else cJSON_AddNullToObject(db, "chamber_c");
         cJSON_AddNumberToObject(db, "target_c", fresh ? snap.target_c : 0.0);
+        // Transport diagnostics: which link is carrying the state, and from whom.
+        const char *tx = !fresh ? "none"
+                       : snap.transport == DC_BREATH_TX_ESPNOW ? "espnow"
+                       : snap.transport == DC_BREATH_TX_HTTP   ? "http" : "none";
+        cJSON_AddStringToObject(db, "transport", tx);
+        cJSON_AddStringToObject(db, "peer",
+            snap.transport == DC_BREATH_TX_ESPNOW ? snap.peer_id : bl.address);
+        cJSON_AddStringToObject(db, "http_fallback", bl.address[0] ? bl.address : "");
+        dc_peer_stats_t ps; dc_peer_get_stats(&ps);
+        cJSON *espnow = cJSON_AddObjectToObject(db, "espnow");
+        cJSON_AddBoolToObject(espnow, "started", ps.started);
+        cJSON_AddNumberToObject(espnow, "rx_frames", ps.rx_frames);
+        cJSON_AddNumberToObject(espnow, "tx_frames", ps.tx_frames);
+        if (ps.last_rx_us) cJSON_AddNumberToObject(espnow, "last_rx_ms_ago",
+            (double)(esp_timer_get_time() - ps.last_rx_us) / 1000.0);
+        else cJSON_AddNullToObject(espnow, "last_rx_ms_ago");
+        cJSON_AddStringToObject(espnow, "last_peer", ps.last_peer_id);
     }
 
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
