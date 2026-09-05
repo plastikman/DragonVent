@@ -1,6 +1,7 @@
 #include "dv_policy.h"
 #include "dc_bambu.h"
 #include "dc_breath_link.h"
+#include "dv_bambu_state.h"
 #include "esp_timer.h"
 #include "dc_evlog.h"
 #include "dc_moonraker.h"
@@ -114,7 +115,7 @@ static void read_auto_input(auto_input_t *out)
             out->active = st.printing;
             out->bed_temp = st.bed_temp;
             snprintf(out->material, sizeof(out->material), "%s", st.filament);
-            out->state = st.printing ? "printing" : "idle";
+            out->state = dv_bambu_live_state_str(&st);
         }
     } else {
         out->state = dc_source_str(s_source);
